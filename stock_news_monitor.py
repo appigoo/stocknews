@@ -678,7 +678,7 @@ def render_card(item: dict, is_new: bool, icon: str = "📰"):
         f'</div>' +
         f'</div>'
     )
-    st.html(html)
+    return html
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -958,8 +958,8 @@ if new_crit_count > 0:
 
 if crits:
     st.markdown('<div class="section-hdr">🚨 Critical Alerts</div>', unsafe_allow_html=True)
-    for item in crits[:8]:
-        render_card(item, is_new=item["uid"] in new_uids, icon=item.get("icon", "📰"))
+    batch = "".join(render_card(i, i["uid"] in new_uids, i.get("icon","📰")) for i in crits[:8])
+    st.html(batch)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HIGH PRIORITY SECTION
@@ -971,8 +971,8 @@ if highs:
         f'<span style="font-weight:400;color:#5b7a96">({len(highs)} items)</span></div>',
         unsafe_allow_html=True,
     )
-    for item in highs[:20]:
-        render_card(item, is_new=item["uid"] in new_uids, icon=item.get("icon", "📰"))
+    batch = "".join(render_card(i, i["uid"] in new_uids, i.get("icon","📰")) for i in highs[:20])
+    st.html(batch)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NORMAL FEED — collapsible
@@ -984,8 +984,8 @@ if normals:
         f"📰 General News Feed — {len(normals)} items",
         expanded=auto_expand,
     ):
-        for item in normals[:40]:
-            render_card(item, is_new=item["uid"] in new_uids, icon=item.get("icon", "📰"))
+        batch = "".join(render_card(i, i["uid"] in new_uids, i.get("icon","📰")) for i in normals[:40])
+        st.html(batch)
 
 # ── Empty state ────────────────────────────────────────────────────────────
 if not unique:
