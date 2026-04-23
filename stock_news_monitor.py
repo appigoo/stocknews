@@ -496,8 +496,9 @@ def fetch_feed(url: str, name: str) -> list:
             title   = (getattr(entry, "title", "") or "").strip()
             summary = (getattr(entry, "summary", "")
                        or getattr(entry, "description", "") or "").strip()
-            summary = re.sub(r"<[^>]*>", " ", summary, flags=re.DOTALL)
-            summary = _html.unescape(summary)
+            summary = _html.unescape(summary)                              # &lt; → <
+            summary = re.sub(r"<[^>]*>", " ", summary, flags=re.DOTALL)  # strip tags
+            summary = _html.unescape(summary)                              # catch double-encoded
             summary = re.sub(r"\s+", " ", summary).strip()[:400]
             link    = (getattr(entry, "link", "") or "").strip() or "#"
 
@@ -643,33 +644,41 @@ def render_card(item: dict, is_new: bool, icon: str = "📰"):
         for kw in item.get("matched_keywords", [])[:3]
     )
     new_html  = '<span class="new-label">NEW</span>' if is_new else ""
-    title_esc = item["title"].replace("<", "&lt;").replace(">", "&gt;")
-    summ_esc  = item["summary"].replace("<", "&lt;").replace(">", "&gt;")
-    summ_esc  = summ_esc[:220] + ("…" if len(item["summary"]) > 220 else "")
+    def _esc(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    title_esc  = _esc(item["title"])
+    summ_text  = item["summary"][:220] + ("…" if len(item["summary"]) > 220 else "")
+    summ_esc   = _esc(summ_text)
+    link_esc   = _esc(item["link"])
+    src_esc    = _esc(item["source"])
 
     bar_w   = min(100, int(item["score"] / 12 * 100))
     bar_col = score_bar_color(item["score"])
 
-    st.markdown(f"""
-    <div class="{css_class}">
-        <div class="card-title">
-            <span class="badge {badge_class}">{tier_label}</span>
-            {tickers_html}{new_html}
-            <a href="{item['link']}" target="_blank">{title_esc}</a>
-        </div>
-        {"" if not summ_esc else f'<div class="card-summary">{summ_esc}</div>'}
-        <div class="card-meta">
-            <span class="src-tag">{icon} <b>{item['source']}</b></span>
-            <span>⏱ {age_string(item['published'])}</span>
-            <span class="score-bar-wrap">
-                📊 <b>{item['score']}</b>
-                <span class="score-bar" style="background:linear-gradient(90deg,{bar_col} {bar_w}%,rgba(255,255,255,0.08) {bar_w}%)"></span>
-            </span>
-            {kw_html}
-            <a href="{item['link']}" target="_blank">Read →</a>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    summ_block = f'<div class="card-summary">{summ_esc}</div>' if summ_esc.strip() else ""
+    score_bar  = (f'<span class="score-bar-wrap">&#128202; <b>{item["score"]}</b>' +
+                  f'<span class="score-bar" style="background:linear-gradient(90deg,' +
+                  f'{bar_col} {bar_w}%,rgba(255,255,255,0.08) {bar_w}%)"></span></span>')
+
+    html = (
+        f'<div class="{css_class}">' +
+        f'<div class="card-title">' +
+        f'<span class="badge {badge_class}">{tier_label}</span>' +
+        f'{tickers_html}{new_html}' +
+        f'<a href="{link_esc}" target="_blank">{title_esc}</a>' +
+        f'</div>' +
+        f'{summ_block}' +
+        f'<div class="card-meta">' +
+        f'<span class="src-tag">{icon} <b>{src_esc}</b></span>' +
+        f'<span>&#9201; {age_string(item["published"])}</span>' +
+        f'{score_bar}' +
+        f'{kw_html}' +
+        f'<a href="{link_esc}" target="_blank">Read &#8594;</a>' +
+        f'</div>' +
+        f'</div>'
+    )
+    st.html(html)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
