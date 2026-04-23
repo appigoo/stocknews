@@ -9,6 +9,7 @@ import feedparser
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 import re
+import html as _html
 import requests
 import hashlib
 from streamlit_autorefresh import st_autorefresh
@@ -495,7 +496,8 @@ def fetch_feed(url: str, name: str) -> list:
             title   = (getattr(entry, "title", "") or "").strip()
             summary = (getattr(entry, "summary", "")
                        or getattr(entry, "description", "") or "").strip()
-            summary = re.sub(r"<[^>]+>", " ", summary)
+            summary = re.sub(r"<[^>]*>", " ", summary, flags=re.DOTALL)
+            summary = _html.unescape(summary)
             summary = re.sub(r"\s+", " ", summary).strip()[:400]
             link    = (getattr(entry, "link", "") or "").strip() or "#"
 
