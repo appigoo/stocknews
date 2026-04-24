@@ -3,7 +3,7 @@
 Free RSS-based stock news monitoring with KOL weighting & 3-tier alert system.
 No API key required · Deployable on Streamlit Cloud
 """
-
+from auth import require_auth, get_current_user, get_current_role
 import streamlit as st
 import feedparser
 import pandas as pd
@@ -13,7 +13,16 @@ import html as _html
 import requests
 import hashlib
 from streamlit_autorefresh import st_autorefresh
-
+def main():
+    require_auth()  # ← 第2行（放在 main() 最頂部）
+    
+    # ... 以下全部原有代碼不變 ...
+    st.title("我的應用程式")
+    
+    # 如需顯示當前用戶（可選）
+    # st.write(f"歡迎, {get_current_user()}")
+if __name__ == "__main__":
+    main()  # ← 第3行（如果原有就有則不需要加）
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
