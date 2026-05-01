@@ -3,8 +3,9 @@
 Free RSS-based stock news monitoring with KOL weighting & 3-tier alert system.
 No API key required · Deployable on Streamlit Cloud
 """
-from auth import require_auth, get_current_user, get_current_role
+
 import streamlit as st
+import streamlit.components.v1 as components
 import feedparser
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -13,16 +14,7 @@ import html as _html
 import requests
 import hashlib
 from streamlit_autorefresh import st_autorefresh
-def main():
-    require_auth()  # ← 第2行（放在 main() 最頂部）
-    
-    # ... 以下全部原有代碼不變 ...
-    st.title("我的應用程式")
-    
-    # 如需顯示當前用戶（可選）
-    # st.write(f"歡迎, {get_current_user()}")
-if __name__ == "__main__":
-    main()  # ← 第3行（如果原有就有則不需要加）
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
@@ -376,6 +368,23 @@ IMPACT_KEYWORDS = {
 USER_AGENT = "Mozilla/5.0 (compatible; StockIntelligenceMonitor/1.0; educational)"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TRANSLATION  (Google Translate · free · no API key · deep-translator)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def translate_zh(text: str) -> str:
+    """Translate to Traditional Chinese. Results cached 1 hr."""
+    if not text or not text.strip():
+        return text
+    try:
+        from deep_translator import GoogleTranslator
+        result = GoogleTranslator(source="auto", target="zh-TW").translate(text[:800])
+        return result or text
+    except Exception:
+        return text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DATA LAYER
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -656,9 +665,19 @@ def render_card(item: dict, is_new: bool, icon: str = "📰"):
     def _esc(s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
-    title_esc  = _esc(item["title"])
-    summ_text  = item["summary"][:220] + ("…" if len(item["summary"]) > 220 else "")
+    # Use translated text when available
+    raw_title  = item.get("title_zh") or item["title"]
+    raw_summ   = item.get("summary_zh") or item["summary"]
+    orig_title = item["title"]
+
+    title_esc  = _esc(raw_title)
+    summ_text  = raw_summ[:220] + ("…" if len(raw_summ) > 220 else "")
     summ_esc   = _esc(summ_text)
+    # Show original English title below if translated
+    orig_line  = (f'<div style="font-size:10.5px;color:rgba(200,218,234,0.38);'
+                  f'margin-top:3px;font-style:italic;">{_esc(orig_title)}</div>')  \
+                 if item.get("title_zh") and item["title_zh"] != item["title"] else ""
+
     link_esc   = _esc(item["link"])
     src_esc    = _esc(item["source"])
 
@@ -676,6 +695,7 @@ def render_card(item: dict, is_new: bool, icon: str = "📰"):
         f'<span class="badge {badge_class}">{tier_label}</span>' +
         f'{tickers_html}{new_html}' +
         f'<a href="{link_esc}" target="_blank">{title_esc}</a>' +
+        f'{orig_line}' +
         f'</div>' +
         f'{summ_block}' +
         f'<div class="card-meta">' +
@@ -767,6 +787,20 @@ with st.sidebar:
         ["📊 Score (highest)", "🕐 Time (newest)"],
         label_visibility="collapsed",
     )
+
+    # ── Language & TTS ──────────────────────────────────────────────────────
+    st.markdown('<div class="sidebar-section">🌐 語言 &amp; 朗讀</div>', unsafe_allow_html=True)
+    auto_translate = st.toggle(
+        "🌐 自動翻譯中文",
+        value=False,
+        help="免費 Google 翻譯，無需 API Key。首次翻譯較慢，結果緩存 1 小時。",
+    )
+    tts_panel = st.toggle("🔊 顯示朗讀面板", value=True,
+                          help="使用瀏覽器內建 Web Speech API，無需任何 API")
+    if auto_translate:
+        st.caption("🗣 語音語言：中文（繁體）")
+    else:
+        st.caption("🗣 語音語言：English (US)")
 
     st.markdown("---")
     if st.button("🔄 Force Refresh Now", use_container_width=True):
@@ -955,6 +989,215 @@ if failed:
     st.caption(f"⚠️ Unavailable: {', '.join(failed[:6])}")
 
 st.markdown("---")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRANSLATION  — batch-translate all items when toggle is ON
+# ─────────────────────────────────────────────────────────────────────────────
+if auto_translate and unique:
+    _bar = st.progress(0, text="🌐 翻譯中，請稍候…")
+    for _i, _item in enumerate(unique):
+        _bar.progress((_i + 1) / len(unique),
+                      text=f"🌐 翻譯中 {_i + 1}/{len(unique)}：{_item['title'][:30]}…")
+        _item["title_zh"]   = translate_zh(_item["title"])
+        _item["summary_zh"] = translate_zh(_item["summary"]) if _item["summary"] else ""
+    _bar.empty()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TTS CONTROL PANEL  — Web Speech API, runs entirely in browser, no API needed
+# ─────────────────────────────────────────────────────────────────────────────
+if tts_panel and unique:
+    import json as _json
+
+    _tts_items = []
+    for _it in unique[:50]:
+        _tts_items.append({
+            "title":   _it.get("title_zh", _it["title"]) if auto_translate else _it["title"],
+            "summary": (_it.get("summary_zh", _it["summary"]) if auto_translate else _it["summary"])[:180],
+            "ticker":  ", ".join(_it.get("found_tickers", [])),
+            "tier":    _it["tier"],
+        })
+
+    _tts_lang = "zh-TW" if auto_translate else "en-US"
+    _tts_json = _json.dumps(_tts_items, ensure_ascii=False)
+
+    _tts_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: #0a1520;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    color: #c8daea;
+    padding: 10px 14px;
+    overflow: hidden;
+  }}
+  #tts-wrap {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #1a3a5c;
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #0d1c2e, #0a1520);
+  }}
+  .lbl {{
+    font-size: 12px;
+    font-weight: 700;
+    color: #00e5ff;
+    white-space: nowrap;
+  }}
+  button {{
+    background: #0d1c2e;
+    border: 1px solid #1a3a5c;
+    color: #c8daea;
+    padding: 5px 13px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: all .15s;
+    white-space: nowrap;
+  }}
+  button:hover {{ background: #1a3a5c; color: #fff; }}
+  button.on {{ background: #00e5ff; color: #000; border-color: #00e5ff; font-weight: 700; }}
+  button:disabled {{ opacity: .35; cursor: default; }}
+  #status {{
+    flex: 1;
+    font-size: 11px;
+    color: #5b7a96;
+    min-width: 120px;
+    max-width: 380px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }}
+  #prog {{ font-size: 11px; color: #00e5ff; white-space: nowrap; }}
+  .speed-wrap {{ display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5b7a96; white-space: nowrap; }}
+  input[type=range] {{ width: 70px; accent-color: #00e5ff; cursor: pointer; }}
+  .tier-dot {{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }}
+  .dot-critical {{ background:#ff1744; }}
+  .dot-high {{ background:#ff9800; }}
+  .dot-normal {{ background:#00e676; }}
+</style>
+</head>
+<body>
+<div id="tts-wrap">
+  <span class="lbl">🔊 TTS</span>
+  <button id="btn-play"  onclick="startReading()">▶ 朗讀全部</button>
+  <button id="btn-pause" onclick="togglePause()" disabled>⏸ 暫停</button>
+  <button id="btn-next"  onclick="nextItem()"   disabled>⏭ 下一則</button>
+  <button id="btn-stop"  onclick="stopReading()" disabled>⏹ 停止</button>
+  <span id="prog"></span>
+  <span id="status">共 {len(_tts_items)} 則 · 點擊「朗讀全部」開始</span>
+  <div class="speed-wrap">
+    速度
+    <input type="range" id="spd" min="0.6" max="2.0" step="0.1" value="1.0"
+           oninput="document.getElementById('spd-val').textContent=this.value+'x'">
+    <span id="spd-val">1.0x</span>
+  </div>
+</div>
+<script>
+const NEWS = {_tts_json};
+const LANG = "{_tts_lang}";
+let idx = 0, playing = false, paused = false;
+const synth = window.speechSynthesis;
+
+// Chrome/Edge keepalive hack (speechSynthesis pauses after ~15s)
+let keepAliveTimer = null;
+function keepAlive() {{
+  keepAliveTimer = setInterval(() => {{
+    if (synth.speaking && !synth.paused) {{
+      synth.pause();
+      synth.resume();
+    }}
+  }}, 10000);
+}}
+
+function setUI(state) {{
+  // state: idle | playing | paused
+  document.getElementById('btn-play').className  = state === 'playing' ? 'on' : '';
+  document.getElementById('btn-pause').disabled  = state === 'idle';
+  document.getElementById('btn-next').disabled   = state === 'idle';
+  document.getElementById('btn-stop').disabled   = state === 'idle';
+  document.getElementById('btn-pause').textContent =
+    state === 'paused' ? '▶ 繼續' : '⏸ 暫停';
+}}
+
+function setStatus(msg, i) {{
+  document.getElementById('status').textContent = msg;
+  document.getElementById('prog').textContent   =
+    (i !== undefined && NEWS.length) ? '[' + (i+1) + '/' + NEWS.length + ']' : '';
+}}
+
+function readNext() {{
+  if (idx >= NEWS.length) {{
+    setStatus('✅ 全部朗讀完畢');
+    document.getElementById('prog').textContent = '';
+    setUI('idle');
+    clearInterval(keepAliveTimer);
+    playing = false;
+    return;
+  }}
+  const item = NEWS[idx];
+  const dots = {{ critical:'🔴', high:'🟡', normal:'🟢' }};
+  setStatus((dots[item.tier] || '') + ' ' + (item.ticker ? '[' + item.ticker + '] ' : '') +
+            item.title.slice(0, 45) + (item.title.length > 45 ? '…' : ''), idx);
+  setUI('playing');
+
+  const text = item.title + (item.summary ? '。' + item.summary : '');
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = LANG;
+  u.rate = parseFloat(document.getElementById('spd').value);
+  u.onend = () => {{ if (playing && !paused) {{ idx++; readNext(); }} }};
+  u.onerror = () => {{ idx++; readNext(); }};
+  synth.speak(u);
+}}
+
+function startReading() {{
+  synth.cancel();
+  idx = 0; playing = true; paused = false;
+  clearInterval(keepAliveTimer);
+  keepAlive();
+  readNext();
+}}
+
+function togglePause() {{
+  if (!playing) return;
+  if (!paused) {{
+    synth.pause(); paused = true;
+    setUI('paused');
+    setStatus('⏸ 已暫停', idx);
+  }} else {{
+    synth.resume(); paused = false;
+    setUI('playing');
+    // Chrome sometimes drops resume; re-speak current item
+    if (!synth.speaking) {{ readNext(); }}
+  }}
+}}
+
+function nextItem() {{
+  if (!playing) return;
+  synth.cancel(); paused = false;
+  idx++; readNext();
+}}
+
+function stopReading() {{
+  synth.cancel();
+  playing = false; paused = false; idx = 0;
+  clearInterval(keepAliveTimer);
+  setUI('idle');
+  setStatus('已停止 · 共 ' + NEWS.length + ' 則');
+  document.getElementById('prog').textContent = '';
+}}
+</script>
+</body>
+</html>"""
+
+    components.html(_tts_html, height=66, scrolling=False)
+    st.markdown("")   # breathing room
 
 # Toast for new critical items
 new_crit_count = sum(1 for i in crits if i["uid"] in new_uids)
