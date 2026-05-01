@@ -3,5 +3,4 @@ feedparser>=6.0.10
 pandas>=2.0.0
 requests>=2.31.0
 streamlit-autorefresh>=1.0.1
-gspread
-google-auth
+deep-translator>=1.11.4
